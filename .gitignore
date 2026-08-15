@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+build
+*.db
+*.db-journal
+.env
+.env*.local
+.DS_Store
+next-env.d.ts
+prisma/dev.db
+
+# Real catalog exports (business pricing) — regenerated via `npm run import:master`
+/data/
+*.xlsx

@@ -1,0 +1,153 @@
+// Artisan Cabinets — Smart Quote Builder
+// SQLite for local/single-office. Switch `provider` to "postgresql" to grow up
+// (snapshotted quote line items keep that migration low-risk).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// The order-level door style / finish "line" — the "BPS" prefix concept.
+// Staff pick one Style per quote; matching resolves size codes within it.
+model Style {
+  id           String        @id @default(cuid())
+  code         String        @unique // e.g. "BPS"
+  name         String // e.g. "Painted Shaker White"
+  active       Boolean       @default(true)
+  catalogItems CatalogItem[]
+  aliases      Alias[]
+  quotes       Quote[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+// A real SKU from the imported master catalog.
+model CatalogItem {
+  id            String          @id @default(cuid())
+  sku           String          @unique // real formatted SKU, e.g. "BPS-A15"
+  normalizedSku String // uppercased/stripped, e.g. "BPSA15"
+  description   String
+  priceCents    Int
+  category      String? // "Base" | "Wall" | "Tall" ...
+  sizeCode      String? // size portion, e.g. "A15" / "B15"
+  unit          String          @default("EA")
+  active        Boolean         @default(true)
+  qboItemId     String? // QuickBooks Online Item id, once mapped
+  styleId       String?
+  style         Style?          @relation(fields: [styleId], references: [id])
+  importBatchId String?
+  importBatch   ImportBatch?    @relation(fields: [importBatchId], references: [id])
+  aliases       Alias[]
+  lineItems     QuoteLineItem[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([normalizedSku])
+  @@index([sizeCode])
+  @@index([styleId])
+}
+
+// The learned shorthand -> SKU mapping. Every human confirmation writes here;
+// this is what makes the tool smarter than static QuickBooks AI.
+model Alias {
+  id                  String      @id @default(cuid())
+  shorthand           String // as typed, e.g. "B15"
+  normalizedShorthand String // normalized, e.g. "B15"
+  catalogItemId       String
+  catalogItem         CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  styleId             String? // null = global alias
+  style               Style?      @relation(fields: [styleId], references: [id])
+  source              String      @default("MANUAL_CONFIRM") // MANUAL_CONFIRM | IMPORT | SEED
+  confirmCount        Int         @default(1)
+  lastUsedAt          DateTime    @default(now())
+  createdAt           DateTime    @default(now())
+
+  @@unique([normalizedShorthand, styleId])
+  @@index([normalizedShorthand])
+}
+
+model Customer {
+  id            String   @id @default(cuid())
+  name          String
+  email         String?
+  phone         String?
+  company       String?
+  notes         String?
+  qboCustomerId String? // QuickBooks Online Customer id, once mapped
+  quotes        Quote[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Quote {
+  id            String          @id @default(cuid())
+  quoteNumber   String          @unique
+  customerId    String?
+  customer      Customer?       @relation(fields: [customerId], references: [id])
+  styleId       String?
+  style         Style?          @relation(fields: [styleId], references: [id])
+  status        String          @default("DRAFT") // DRAFT | NEEDS_REVIEW | CONFIRMED | EXPORTED
+  rawInput      String          @default("") // original pasted request (audit + reparse)
+  subtotalCents Int             @default(0)
+  taxCents      Int             @default(0)
+  totalCents    Int             @default(0)
+  notes         String?
+  createdBy     String?
+  qboEstimateId String? // QuickBooks Online Estimate id, once pushed
+  lineItems     QuoteLineItem[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model QuoteLineItem {
+  id                  String       @id @default(cuid())
+  quoteId             String
+  quote               Quote        @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  lineNumber          Int
+  rawText             String
+  parsedShorthand     String
+  quantity            Int          @default(1)
+  catalogItemId       String?
+  catalogItem         CatalogItem? @relation(fields: [catalogItemId], references: [id])
+  matchMethod         String       @default("UNMATCHED") // ALIAS | EXACT | FUZZY | LLM | MANUAL | UNMATCHED
+  confidence          Float        @default(0)
+  status              String       @default("NEEDS_REVIEW") // AUTO_ACCEPTED | NEEDS_REVIEW | CONFIRMED | REJECTED
+  descriptionSnapshot String       @default("")
+  unitPriceCents      Int          @default(0)
+  lineTotalCents      Int          @default(0)
+  candidatesJson      String       @default("[]") // top-N alternatives (JSON)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@index([quoteId])
+}
+
+// QuickBooks Online OAuth connection (one per connected company/realm).
+model QuickBooksConnection {
+  id               String   @id @default(cuid())
+  realmId          String   @unique // the QBO company id
+  accessToken      String
+  refreshToken     String
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime
+  environment      String   @default("sandbox") // sandbox | production
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// Catalog upload audit trail.
+model ImportBatch {
+  id                String        @id @default(cuid())
+  filename          String
+  rowCount          Int           @default(0)
+  importedCount     Int           @default(0)
+  skippedCount      Int           @default(0)
+  columnMappingJson String        @default("{}")
+  status            String        @default("COMPLETED")
+  items             CatalogItem[]
+  createdAt         DateTime      @default(now())
+}
