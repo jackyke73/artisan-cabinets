@@ -1,13 +1,12 @@
 // Artisan Cabinets — Smart Quote Builder
-// SQLite for local/single-office. Switch `provider` to "postgresql" to grow up
-// (snapshotted quote line items keep that migration low-risk).
+// Postgres (Railway). Snapshotted quote line items keep schema changes low-risk.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

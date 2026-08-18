@@ -13,3 +13,7 @@ prisma/dev.db
 # Real catalog exports (business pricing) — regenerated via `npm run import:master`
 /data/
 *.xlsx
+
+# iCloud: real dirs are .nosync (iCloud skips *.nosync); node_modules/.next are symlinks to them
+node_modules.nosync
+.next.nosync
